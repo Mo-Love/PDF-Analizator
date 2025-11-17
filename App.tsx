@@ -17,20 +17,19 @@ const Loader: React.FC = () => (
 
 interface HighlightedTextProps {
   text: string;
-  highlight: string;
+  highlightRegex: RegExp | null;
 }
 
-const HighlightedText: React.FC<HighlightedTextProps> = ({ text, highlight }) => {
-  if (!highlight.trim()) {
+const HighlightedText: React.FC<HighlightedTextProps> = ({ text, highlightRegex }) => {
+  if (!highlightRegex) {
     return <p className="whitespace-pre-wrap break-words">{text}</p>;
   }
-  const regex = new RegExp(`(${highlight.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi');
-  const parts = text.split(regex);
+  const parts = text.split(highlightRegex);
 
   return (
     <p className="whitespace-pre-wrap break-words">
       {parts.map((part, i) =>
-        regex.test(part) ? (
+        i % 2 === 1 ? (
           <mark key={i} className="bg-sky-300 dark:bg-sky-700 rounded px-1">
             {part}
           </mark>
@@ -81,6 +80,8 @@ const App: React.FC = () => {
   const [extractedText, setExtractedText] = useState<string>('');
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [searchKeyword, setSearchKeyword] = useState<string>('');
+  const [isCaseSensitive, setIsCaseSensitive] = useState<boolean>(false);
+  const [isWholeWord, setIsWholeWord] = useState<boolean>(false);
   
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -216,13 +217,22 @@ ${result.steps.length > 0 ? result.steps.map((item, index) => `${index + 1}. ${i
 
   const hasResults = useMemo(() => analysisResult || extractedText, [analysisResult, extractedText]);
 
-  const matchCount = useMemo(() => {
-    if (!searchKeyword.trim() || !extractedText) {
+  const searchRegex = useMemo(() => {
+    if (!searchKeyword.trim()) {
       return null;
     }
-    const regex = new RegExp(`(${searchKeyword.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi');
-    return (extractedText.match(regex) || []).length;
-  }, [extractedText, searchKeyword]);
+    const escapedKeyword = searchKeyword.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const pattern = isWholeWord ? `\\b(${escapedKeyword})\\b` : `(${escapedKeyword})`;
+    const flags = isCaseSensitive ? 'g' : 'gi';
+    return new RegExp(pattern, flags);
+  }, [searchKeyword, isCaseSensitive, isWholeWord]);
+
+  const matchCount = useMemo(() => {
+    if (!searchRegex || !extractedText) {
+      return null;
+    }
+    return (extractedText.match(searchRegex) || []).length;
+  }, [extractedText, searchRegex]);
 
   return (
     <div className="min-h-screen font-sans">
@@ -369,8 +379,28 @@ ${result.steps.length > 0 ? result.steps.map((item, index) => `${index + 1}. ${i
                         </span>
                      )}
                    </div>
+                   <div className="flex items-center flex-wrap gap-x-6 gap-y-2 mb-4 text-sm text-slate-600 dark:text-slate-400">
+                        <label className="flex items-center gap-2 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition-colors">
+                            <input
+                                type="checkbox"
+                                checked={isCaseSensitive}
+                                onChange={(e) => setIsCaseSensitive(e.target.checked)}
+                                className="h-4 w-4 rounded border-slate-400 dark:border-slate-500 text-sky-600 focus:ring-sky-500 bg-slate-100 dark:bg-slate-700 focus:ring-offset-slate-100 dark:focus:ring-offset-slate-800"
+                            />
+                            Враховувати регістр
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition-colors">
+                            <input
+                                type="checkbox"
+                                checked={isWholeWord}
+                                onChange={(e) => setIsWholeWord(e.target.checked)}
+                                className="h-4 w-4 rounded border-slate-400 dark:border-slate-500 text-sky-600 focus:ring-sky-500 bg-slate-100 dark:bg-slate-700 focus:ring-offset-slate-100 dark:focus:ring-offset-slate-800"
+                            />
+                            Тільки цілі слова
+                        </label>
+                   </div>
                    <div className="max-h-[60vh] overflow-y-auto p-4 bg-slate-50 dark:bg-slate-900/50 rounded-md border border-slate-200 dark:border-slate-700">
-                     <HighlightedText text={extractedText} highlight={searchKeyword} />
+                     <HighlightedText text={extractedText} highlightRegex={searchRegex} />
                    </div>
                 </div>
               )}
