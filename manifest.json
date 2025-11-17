@@ -1,0 +1,18 @@
+
+{
+  "short_name": "AI Аналізатор",
+  "name": "AI Аналізатор Інструкцій",
+  "description": "Завантажуйте PDF-файли з інструкціями, щоб отримати структурований аналіз.",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0f172a",
+  "background_color": "#f1f5f9",
+  "scope": "/"
+}

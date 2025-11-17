@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { extractTextFromPdf } from './services/pdfService';
 import { analyzeGuideText, AnalysisResult } from './services/geminiService';
 
@@ -60,6 +60,18 @@ const IconChip: React.FC<{ className?: string }> = ({ className }) => (
       </svg>
 );
 
+const IconClipboard: React.FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+    </svg>
+);
+
+const IconDownload: React.FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+    </svg>
+);
+
 
 // --- Main App Component ---
 
@@ -74,6 +86,21 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   
   const [activeTab, setActiveTab] = useState<'summary' | 'fulltext'>('summary');
+  const [copyButtonText, setCopyButtonText] = useState('Копіювати в буфер');
+  const [isOnline, setIsOnline] = useState<boolean>(() => navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -95,6 +122,10 @@ const App: React.FC = () => {
   const processDocument = useCallback(async () => {
     if (!pdfFile) {
       setError('Файл не вибрано.');
+      return;
+    }
+    if (!isOnline) {
+      setError('Для аналізу документа потрібне підключення до Інтернету.');
       return;
     }
 
@@ -120,9 +151,78 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [pdfFile]);
+  }, [pdfFile, isOnline]);
+
+  const generateMarkdownContent = useCallback((result: AnalysisResult, name: string) => {
+    return `
+# Аналіз документа: ${name}
+
+## Загальний Огляд
+${result.overview}
+
+## Необхідні Компоненти
+${result.components.length > 0 ? result.components.map(item => `- ${item}`).join('\n') : 'Компоненти не знайдено.'}
+
+## Необхідні Інструменти
+${result.tools.length > 0 ? result.tools.map(item => `- ${item}`).join('\n') : 'Інструменти не знайдено.'}
+
+## Основні Кроки Збірки
+${result.steps.length > 0 ? result.steps.map((item, index) => `${index + 1}. ${item}`).join('\n') : 'Кроки збірки не знайдено.'}
+    `.trim();
+  }, []);
+
+  const handleCopyToClipboard = useCallback(() => {
+    if (!analysisResult || !fileName) return;
+
+    const markdownContent = generateMarkdownContent(analysisResult, fileName);
+
+    navigator.clipboard.writeText(markdownContent).then(() => {
+        setCopyButtonText('Скопійовано!');
+        setTimeout(() => setCopyButtonText('Копіювати в буфер'), 2000);
+    }).catch(err => {
+        console.error('Не вдалося скопіювати:', err);
+        setError('Не вдалося скопіювати в буфер обміну.');
+    });
+  }, [analysisResult, fileName, generateMarkdownContent]);
+
+  const handleDownload = useCallback((format: 'md' | 'json') => {
+    if (!analysisResult || !fileName) return;
+
+    let content = '';
+    let mimeType = '';
+    let fileExtension = '';
+    const baseFileName = fileName.replace(/\.[^/.]+$/, "");
+
+    if (format === 'md') {
+        content = generateMarkdownContent(analysisResult, fileName);
+        mimeType = 'text/markdown;charset=utf-8';
+        fileExtension = 'md';
+    } else {
+        content = JSON.stringify(analysisResult, null, 2);
+        mimeType = 'application/json;charset=utf-8';
+        fileExtension = 'json';
+    }
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${baseFileName}_analysis.${fileExtension}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [analysisResult, fileName, generateMarkdownContent]);
 
   const hasResults = useMemo(() => analysisResult || extractedText, [analysisResult, extractedText]);
+
+  const matchCount = useMemo(() => {
+    if (!searchKeyword.trim() || !extractedText) {
+      return null;
+    }
+    const regex = new RegExp(`(${searchKeyword.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi');
+    return (extractedText.match(regex) || []).length;
+  }, [extractedText, searchKeyword]);
 
   return (
     <div className="min-h-screen font-sans">
@@ -145,13 +245,20 @@ const App: React.FC = () => {
             <span className="text-slate-500 dark:text-slate-400 truncate flex-1 text-center sm:text-left" title={fileName}>
               {fileName || 'Файл не вибрано'}
             </span>
-            <button
-              onClick={processDocument}
-              disabled={!pdfFile || isLoading}
-              className="w-full sm:w-auto px-6 py-2 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
-            >
-              Аналізувати
-            </button>
+            <div className="flex flex-col items-center w-full sm:w-auto">
+                <button
+                  onClick={processDocument}
+                  disabled={!pdfFile || isLoading || !isOnline}
+                  className="w-full sm:w-auto px-6 py-2 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                >
+                  Аналізувати
+                </button>
+                {!isOnline && (
+                    <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-500">
+                        Для аналізу потрібен інтернет
+                    </p>
+                )}
+            </div>
           </div>
 
           {error && <div className="mt-4 text-center text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 p-3 rounded-md">{error}</div>}
@@ -176,6 +283,24 @@ const App: React.FC = () => {
               {activeTab === 'summary' && (
                 analysisResult ? (
                     <div className="space-y-8">
+                        <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                           <h3 className="text-lg font-semibold mb-3 text-slate-900 dark:text-white">Експорт Результатів</h3>
+                           <div className="flex flex-wrap gap-3">
+                               <button onClick={handleCopyToClipboard} className="inline-flex items-center justify-center px-4 py-2 border border-slate-300 dark:border-slate-600 text-sm font-medium rounded-md text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 transition-all disabled:opacity-50" disabled={copyButtonText === 'Скопійовано!'}>
+                                   <IconClipboard className="h-5 w-5 mr-2" />
+                                   {copyButtonText}
+                               </button>
+                               <button onClick={() => handleDownload('md')} className="inline-flex items-center justify-center px-4 py-2 border border-slate-300 dark:border-slate-600 text-sm font-medium rounded-md text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 transition-all">
+                                   <IconDownload className="h-5 w-5 mr-2" />
+                                   Завантажити .md
+                               </button>
+                               <button onClick={() => handleDownload('json')} className="inline-flex items-center justify-center px-4 py-2 border border-slate-300 dark:border-slate-600 text-sm font-medium rounded-md text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 transition-all">
+                                   <IconDownload className="h-5 w-5 mr-2" />
+                                   Завантажити .json
+                               </button>
+                           </div>
+                        </div>
+
                         <div>
                             <h2 className="text-2xl font-semibold mb-4 text-slate-900 dark:text-white">Загальний Огляд</h2>
                             <p className="text-slate-600 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
@@ -230,14 +355,19 @@ const App: React.FC = () => {
               {activeTab === 'fulltext' && (
                 <div>
                   <h2 className="text-2xl font-semibold mb-4 text-slate-900 dark:text-white">Повний Текст Документа</h2>
-                   <div className="mb-4">
+                   <div className="mb-4 relative">
                      <input
                        type="search"
                        placeholder="Введіть ключове слово для пошуку..."
                        value={searchKeyword}
                        onChange={(e) => setSearchKeyword(e.target.value)}
-                       className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 focus:ring-sky-500 focus:border-sky-500"
+                       className="w-full px-4 py-2 pr-28 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 focus:ring-sky-500 focus:border-sky-500 transition-all"
                      />
+                     {searchKeyword.trim() && (
+                        <span className="absolute inset-y-0 right-4 flex items-center text-sm text-slate-500 dark:text-slate-400 pointer-events-none">
+                            {matchCount !== null && (matchCount > 0 ? `${matchCount} збігів` : 'Не знайдено')}
+                        </span>
+                     )}
                    </div>
                    <div className="max-h-[60vh] overflow-y-auto p-4 bg-slate-50 dark:bg-slate-900/50 rounded-md border border-slate-200 dark:border-slate-700">
                      <HighlightedText text={extractedText} highlight={searchKeyword} />
