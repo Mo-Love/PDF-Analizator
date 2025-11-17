@@ -221,10 +221,24 @@ ${result.steps.length > 0 ? result.steps.map((item, index) => `${index + 1}. ${i
     if (!searchKeyword.trim()) {
       return null;
     }
+    // Escape special characters for use in regex
     const escapedKeyword = searchKeyword.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const pattern = isWholeWord ? `\\b(${escapedKeyword})\\b` : `(${escapedKeyword})`;
-    const flags = isCaseSensitive ? 'g' : 'gi';
-    return new RegExp(pattern, flags);
+    
+    // Use a Unicode-aware pattern for whole word search.
+    // This correctly handles word boundaries for Cyrillic and other alphabets.
+    const pattern = isWholeWord 
+      ? `(?<=^|[^\\p{L}\\p{N}_])(${escapedKeyword})(?=[^\\p{L}\\p{N}_]|$)` 
+      : `(${escapedKeyword})`;
+      
+    // Add 'u' flag for Unicode property escapes (\p{L}, \p{N})
+    const flags = isCaseSensitive ? 'gu' : 'giu';
+    
+    try {
+        return new RegExp(pattern, flags);
+    } catch (e) {
+        console.error("Invalid regex:", e);
+        return null; // Fallback for invalid regex patterns
+    }
   }, [searchKeyword, isCaseSensitive, isWholeWord]);
 
   const matchCount = useMemo(() => {
