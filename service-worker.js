@@ -1,76 +1,85 @@
-
-const CACHE_NAME = 'ai-analyzer-cache-v2'; // Increased version to force update
-const urlsToCache = [
+const CACHE_NAME = 'ai-analyzer-cache-v3';
+const APP_SHELL_URLS = [
   '/',
   '/index.html',
-  '/manifest.json', // Added manifest to cache
-  '/index.tsx',
-  '/App.tsx',
-  '/icon.svg',
-  '/services/pdfService.ts',
-  '/services/geminiService.ts',
-  'https://cdn.tailwindcss.com',
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
-  // Note: aistudiocdn scripts are removed from pre-cache and will be cached dynamically by the fetch event
+  '/manifest.json',
+  '/icon.svg'
 ];
 
+// Event: install
+// Caches the essential app shell files.
 self.addEventListener('install', event => {
-  // Perform install steps
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
-        console.log('Opened cache and caching essential assets');
-        return cache.addAll(urlsToCache);
+        console.log('Opened cache and caching app shell');
+        return cache.addAll(APP_SHELL_URLS);
       })
-      .catch(error => {
-        console.error('Failed to cache essential assets during install:', error);
+      .then(() => {
+        // Force the waiting service worker to become the active service worker.
+        return self.skipWaiting();
       })
   );
 });
 
-self.addEventListener('fetch', event => {
-  // We only want to cache GET requests
-  if (event.request.method !== 'GET') {
-    return;
-  }
-
-  event.respondWith(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.match(event.request).then(response => {
-        // Return response from cache if found
-        if (response) {
-          return response;
-        }
-
-        // If not in cache, fetch from network
-        return fetch(event.request).then(networkResponse => {
-          // Check for valid response
-          if (networkResponse && networkResponse.status === 200) {
-            // Clone the response because it's a stream and can be consumed only once.
-            const responseToCache = networkResponse.clone();
-            // Cache the new response
-            cache.put(event.request, responseToCache);
-          }
-          return networkResponse;
-        });
-      });
-    })
-  );
-});
-
+// Event: activate
+// Cleans up old caches to save space.
 self.addEventListener('activate', event => {
-  const cacheWhitelist = [CACHE_NAME];
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
         cacheNames.map(cacheName => {
-          if (cacheWhitelist.indexOf(cacheName) === -1) {
-            // Delete old caches
+          if (cacheName !== CACHE_NAME) {
+            console.log('Deleting old cache:', cacheName);
             return caches.delete(cacheName);
           }
         })
       );
+    }).then(() => {
+        // Tell the active service worker to take control of the page immediately.
+        return self.clients.claim();
+    })
+  );
+});
+
+// Event: fetch
+// Serves assets from cache or network.
+self.addEventListener('fetch', event => {
+  const { request } = event;
+
+  // For navigation requests (HTML pages), try the network first.
+  // This ensures users get the latest version of the app's structure.
+  // If the network fails, fall back to the cached index.html.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
+  // For all other requests (CSS, JS, images, etc.), use a cache-first strategy.
+  // This makes the app load instantly on subsequent visits.
+  event.respondWith(
+    caches.match(request).then(cachedResponse => {
+      // If we have a response in the cache, return it.
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+
+      // If not, fetch it from the network.
+      return fetch(request).then(networkResponse => {
+        // Check if we received a valid response.
+        if (networkResponse && networkResponse.status === 200) {
+          // Clone the response because it's a stream and can only be consumed once.
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then(cache => {
+            // Cache the new resource for future use.
+            cache.put(request, responseToCache);
+          });
+        }
+        return networkResponse;
+      });
     })
   );
 });
