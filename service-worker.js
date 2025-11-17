@@ -1,9 +1,10 @@
-const CACHE_NAME = 'ai-analyzer-cache-v3';
+
+const CACHE_NAME = 'ai-analyzer-cache-v4';
 const APP_SHELL_URLS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/icon.svg'
+  './',
+  './index.html',
+  './manifest.json',
+  './icon.svg'
 ];
 
 // Event: install
@@ -53,7 +54,7 @@ self.addEventListener('fetch', event => {
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
-        .catch(() => caches.match('/index.html'))
+        .catch(() => caches.match('./index.html'))
     );
     return;
   }
